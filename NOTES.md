@@ -92,30 +92,6 @@ tools, but cannot sign in to the AWS website.
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AllowEC2VPC",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:*"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "AllowS3",
-      "Effect": "Allow",
-      "Action": [
-        "s3:*"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "AllowRDS",
-      "Effect": "Allow",
-      "Action": [
-        "rds:*"
-      ],
-      "Resource": "*"
-    },
-    {
       "Sid": "DenyConsoleSignIn",
       "Effect": "Deny",
       "Action": [
@@ -131,6 +107,11 @@ tools, but cannot sign in to the AWS website.
 
 No console password (login profile) is created for `engine`/`ci` — they use
 access keys only.
+
+The broad `ec2:*` (including VPC), `s3:*`, and `rds:*` allows have been removed.
+Workload permissions are not specified by the task: `ci` uses the
+least-privilege policy in **Task 4**, and `engine` should get its own
+least-privilege policy.
 
 #### 2) `group2` — full console + CLI team
 
@@ -381,3 +362,133 @@ Note: `root` here does not mean the root user — it is the account principal.
 When `roleB` assumes `roleC`, the request carries an assumed-role session ARN
 (`arn:aws:sts::000000000000:assumed-role/roleB/<session>`), but the trust policy
 principal is written as the **role ARN**, as shown above.
+
+---
+
+# Task 4 - Least-Privilege Policy Writing
+
+A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
+`ci` user from Task 3, scoped to only what a CI pipeline needs:
+
+1. Push a Docker image to a specific ECR repository.
+2. Deploy a new task definition to a specific ECS service.
+3. Read (not write) a specific S3 bucket used for build artifacts.
+
+## Placeholders
+
+| Placeholder | Value used here |
+|-------------|-----------------|
+| Account A | `000000000000` |
+| Region | `us-east-1` |
+| ECR repository | `my-app` |
+| ECS cluster / service | `prod` / `my-app` |
+| Build-artifact bucket | `my-build-artifacts` |
+| ECS execution role | `ecsTaskExecutionRole` |
+
+## Policy (JSONC - GAP comments show the 4 conditional additions)
+
+```jsonc
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPushToRepo",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:000000000000:repository/my-app"
+    },
+    {
+      "Sid": "EcsRegisterTaskDefinition",
+      "Effect": "Allow",
+      "Action": "ecs:RegisterTaskDefinition",
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcsUpdateService",
+      "Effect": "Allow",
+      "Action": "ecs:UpdateService",
+      "Resource": "arn:aws:ecs:us-east-1:000000000000:service/prod/my-app"
+    },
+    {
+      "Sid": "PassEcsExecutionRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      // GAP 1: if the task definition sets a taskRoleArn, add that ARN here
+      // (turn Resource into an array):
+      // "arn:aws:iam::000000000000:role/<task-role>"
+      "Resource": "arn:aws:iam::000000000000:role/ecsTaskExecutionRole",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "ReadBuildArtifactsBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::my-build-artifacts"
+    },
+    {
+      "Sid": "ReadBuildArtifactsObjects",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::my-build-artifacts/*"
+    }
+    // GAP 2: if the pipeline waits for `services-stable`, add:
+    // { "Sid": "EcsDescribeService", "Effect": "Allow",
+    //   "Action": "ecs:DescribeServices",
+    //   "Resource": "arn:aws:ecs:us-east-1:000000000000:service/prod/my-app" }
+    //
+    // GAP 3: if the bucket is SSE-KMS, add:
+    // { "Sid": "KmsDecryptBuildArtifacts", "Effect": "Allow",
+    //   "Action": "kms:Decrypt",
+    //   "Resource": "arn:aws:kms:us-east-1:000000000000:key/<key-id>" }
+    //
+    // GAP 4: if the pipeline reads the current task definition, add:
+    // { "Sid": "EcsDescribeTaskDefinition", "Effect": "Allow",
+    //   "Action": "ecs:DescribeTaskDefinition", "Resource": "*" }
+  ]
+}
+```
+
+## Why each statement
+
+| Sid | Why it is needed | Why it is scoped this way |
+|-----|------------------|---------------------------|
+| `EcrLogin` | Gets the Docker login token before `docker push`. | Must be `"*"` - AWS does not support resource-level permissions for `ecr:GetAuthorizationToken`. |
+| `EcrPushToRepo` | Exactly the actions `docker push` calls. | Scoped to the one repository ARN. No `ecr:*`, no deletes, no pull-only actions. |
+| `EcsRegisterTaskDefinition` | Creates the new task-definition revision. | Must be `"*"` - the new revision does not exist yet, so there is no resource to scope to. |
+| `EcsUpdateService` | Points the one service at the new revision. | Scoped to the service ARN. No `CreateService`, `DeleteService`, `RunTask`, etc. |
+| `PassEcsExecutionRole` | ECS requires `iam:PassRole` when registering a task definition that references an execution role. | Only the one execution role, plus `iam:PassedToService = ecs-tasks.amazonaws.com` so it cannot be passed elsewhere. |
+| `ReadBuildArtifactsBucket` / `ReadBuildArtifactsObjects` | Reads build artifacts. | `ListBucket` on the bucket ARN, `GetObject` on `/*`. No `PutObject`, `DeleteObject`, or `s3:*`. |
+
+## The 4 conditional gaps (commented in the policy)
+
+1. **Task role** - if the task definition sets `taskRoleArn`, add that role ARN
+   to `PassEcsExecutionRole`, otherwise `RegisterTaskDefinition` fails.
+2. **Deployment wait** - if the pipeline waits for `services-stable`, add
+   `ecs:DescribeServices` on the service ARN.
+3. **SSE-KMS bucket** - if the S3 bucket is encrypted with KMS, add
+   `kms:Decrypt` on the key ARN.
+4. **Read current task definition** - if the pipeline reads the existing
+   revision to build the new one, add `ecs:DescribeTaskDefinition`.
+
+## Task 3 update
+
+`ci` no longer gets the broad `ec2:*` (including VPC), `s3:*`, or `rds:*` from
+the Task 3 example policy. The group policy keeps only `DenyConsoleSignIn`;
+`ci` gets this Task 4 policy as its least-privilege permission policy, and
+`engine` should get its own least-privilege policy.
