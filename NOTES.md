@@ -512,3 +512,114 @@ A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
   "Resource": "*"
 }
 ```
+
+---
+
+# Task 5 - Find and Fix the Bug
+
+Terraform snippet meant to let `roleB` (Account A) assume `roleC` (Account B).
+It is broken in two places: the trust policy and the S3 permissions policy.
+
+## Broken snippet
+
+```hcl
+data "aws_iam_policy_document" "roleC_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::000000000000:user/roleB"]
+    }
+  }
+}
+
+resource "aws_iam_role" "roleC" {
+  name               = "roleC"
+  assume_role_policy = data.aws_iam_policy_document.roleC_trust.json
+}
+
+resource "aws_iam_role_policy" "roleC_s3" {
+  name = "roleC-s3-access"
+  role = aws_iam_role.roleC.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "s3:*"
+      Resource = "*"
+    }]
+  })
+}
+```
+
+## Fixed snippet
+
+```hcl
+data "aws_iam_policy_document" "roleC_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type = "AWS"
+
+      # roleB is a role, not a user, and must be the full role ARN.
+      # Replace ACCOUNT_A_ID with Account A's actual ID.
+      identifiers = [
+        "arn:aws:iam::ACCOUNT_A_ID:role/roleB"
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "roleC" {
+  name               = "roleC"
+  assume_role_policy = data.aws_iam_policy_document.roleC_trust.json
+}
+
+resource "aws_iam_role_policy" "roleC_s3" {
+  name = "roleC-s3-access"
+  role = aws_iam_role.roleC.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [
+      {
+        Sid    = "ListBucket"
+        Effect = "Allow"
+        Action = ["s3:ListBucket"]
+
+        # ListBucket applies to the bucket itself.
+        Resource = "arn:aws:s3:::my-bucket"
+      },
+      {
+        Sid    = "ReadWriteObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject"
+        ]
+
+        # GetObject/PutObject apply to objects inside the bucket.
+        Resource = "arn:aws:s3:::my-bucket/*"
+      }
+    ]
+  })
+}
+```
+
+## Why it was failing
+
+- **Trust fix:** `roleB` is a role, not a user — use `role/roleB` so AWS
+  matches the right identity.
+- **S3 fix:** allow only the 3 needed actions on one bucket instead of `s3:*`
+  on everything.
+- **Split statements:** `ListBucket` acts on the bucket ARN; `GetObject` /
+  `PutObject` act on `bucket/*`, so they need separate statements.
+- **Cross-account:** `roleB` also needs permission to assume `roleC`; the trust
+  policy alone isn't enough.
