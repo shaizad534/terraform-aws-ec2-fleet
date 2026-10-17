@@ -385,9 +385,9 @@ A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
 | Build-artifact bucket | `my-build-artifacts` |
 | ECS execution role | `ecsTaskExecutionRole` |
 
-## Policy (JSONC - GAP comments show the 4 conditional additions)
+## Policy
 
-```jsonc
+```json
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -425,9 +425,6 @@ A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
       "Sid": "PassEcsExecutionRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      // GAP 1: if the task definition sets a taskRoleArn, add that ARN here
-      // (turn Resource into an array):
-      // "arn:aws:iam::000000000000:role/<task-role>"
       "Resource": "arn:aws:iam::000000000000:role/ecsTaskExecutionRole",
       "Condition": {
         "StringEquals": {
@@ -447,19 +444,6 @@ A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
       "Action": "s3:GetObject",
       "Resource": "arn:aws:s3:::my-build-artifacts/*"
     }
-    // GAP 2: if the pipeline waits for `services-stable`, add:
-    // { "Sid": "EcsDescribeService", "Effect": "Allow",
-    //   "Action": "ecs:DescribeServices",
-    //   "Resource": "arn:aws:ecs:us-east-1:000000000000:service/prod/my-app" }
-    //
-    // GAP 3: if the bucket is SSE-KMS, add:
-    // { "Sid": "KmsDecryptBuildArtifacts", "Effect": "Allow",
-    //   "Action": "kms:Decrypt",
-    //   "Resource": "arn:aws:kms:us-east-1:000000000000:key/<key-id>" }
-    //
-    // GAP 4: if the pipeline reads the current task definition, add:
-    // { "Sid": "EcsDescribeTaskDefinition", "Effect": "Allow",
-    //   "Action": "ecs:DescribeTaskDefinition", "Resource": "*" }
   ]
 }
 ```
@@ -475,20 +459,56 @@ A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
 | `PassEcsExecutionRole` | ECS requires `iam:PassRole` when registering a task definition that references an execution role. | Only the one execution role, plus `iam:PassedToService = ecs-tasks.amazonaws.com` so it cannot be passed elsewhere. |
 | `ReadBuildArtifactsBucket` / `ReadBuildArtifactsObjects` | Reads build artifacts. | `ListBucket` on the bucket ARN, `GetObject` on `/*`. No `PutObject`, `DeleteObject`, or `s3:*`. |
 
-## The 4 conditional gaps (commented in the policy)
+## The 4 conditional gaps
 
-1. **Task role** - if the task definition sets `taskRoleArn`, add that role ARN
-   to `PassEcsExecutionRole`, otherwise `RegisterTaskDefinition` fails.
-2. **Deployment wait** - if the pipeline waits for `services-stable`, add
-   `ecs:DescribeServices` on the service ARN.
-3. **SSE-KMS bucket** - if the S3 bucket is encrypted with KMS, add
-   `kms:Decrypt` on the key ARN.
-4. **Read current task definition** - if the pipeline reads the existing
-   revision to build the new one, add `ecs:DescribeTaskDefinition`.
+### 1) Task role
 
-## Task 3 update
+```json
+{
+  "Sid": "PassEcsExecutionRole",
+  "Effect": "Allow",
+  "Action": "iam:PassRole",
+  "Resource": [
+    "arn:aws:iam::000000000000:role/ecsTaskExecutionRole",
+    "arn:aws:iam::000000000000:role/<task-role>"
+  ],
+  "Condition": {
+    "StringEquals": {
+      "iam:PassedToService": "ecs-tasks.amazonaws.com"
+    }
+  }
+}
+```
 
-`ci` no longer gets the broad `ec2:*` (including VPC), `s3:*`, or `rds:*` from
-the Task 3 example policy. The group policy keeps only `DenyConsoleSignIn`;
-`ci` gets this Task 4 policy as its least-privilege permission policy, and
-`engine` should get its own least-privilege policy.
+### 2) Deployment wait
+
+```json
+{
+  "Sid": "EcsDescribeService",
+  "Effect": "Allow",
+  "Action": "ecs:DescribeServices",
+  "Resource": "arn:aws:ecs:us-east-1:000000000000:service/prod/my-app"
+}
+```
+
+### 3) SSE-KMS bucket
+
+```json
+{
+  "Sid": "KmsDecryptBuildArtifacts",
+  "Effect": "Allow",
+  "Action": "kms:Decrypt",
+  "Resource": "arn:aws:kms:us-east-1:000000000000:key/<key-id>"
+}
+```
+
+### 4) Read current task definition
+
+```json
+{
+  "Sid": "EcsDescribeTaskDefinition",
+  "Effect": "Allow",
+  "Action": "ecs:DescribeTaskDefinition",
+  "Resource": "*"
+}
+```
