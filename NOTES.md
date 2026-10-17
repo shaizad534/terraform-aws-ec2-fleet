@@ -41,3 +41,213 @@ attribute lives in a dedicated block. The guarded instance also sets
 
 Because `prevent_destroy` is evaluated on the destroy plan, the flag must be
 cleared and applied first.
+
+---
+
+# Task 3 — Multi-Account IAM & Cross-Account Access
+
+## Task
+
+**Account A (`000000000000`)**
+
+1. `group1` — CLI/programmatic-only access. Members: `engine`, `ci`.
+2. `group2` — full console + CLI access. Members: two named users.
+3. `roleA` — administrative access to all AWS services except IAM.
+4. `roleB` — only permission is to assume a role in Account B.
+
+**Account B (`111111111111`)**
+
+5. `roleC` — full access to a single named S3 bucket, assumable only by `roleB`
+   from Account A — not by anything else in Account A.
+
+---
+
+## The five conditions explained
+
+Two separate AWS accounts:
+
+- **Account A** = `000000000000`
+- **Account B** = `111111111111`
+
+An **IAM role** is a temporary badge you put on to borrow certain powers.
+**Assume a role** means putting on that temporary badge. An **S3 bucket** is a
+storage box for files.
+
+### Account A
+
+#### 1) `group1` — CLI/programmatic-only team
+
+**Task:** a group for CLI/programmatic-only access; members `engine`, `ci`.
+
+**Explanation:** `group1` is an **IAM group** (a team — everyone in it gets the
+same permissions). Its members, `engine` and `ci`, are automation/machines. They
+receive **access keys** (permanent keys used by the **CLI** — the command line)
+but **no console login** (no AWS website password). They can run scripts and
+tools, but cannot sign in to the AWS website.
+
+#### 2) `group2` — full console + CLI team
+
+**Task:** a group for full console + CLI access; two named users of your choice.
+
+**Explanation:** `group2` is an **IAM group** for real people. Its two members
+get **both** a **console login** (AWS website password) **and access keys**
+(CLI/command-line keys). They can work from the website and from the command
+line.
+
+#### 3) `roleA` — administrator except IAM
+
+**Task:** a role with administrative access to all AWS services except IAM.
+
+**Explanation:** `roleA` is an **IAM role** (temporary badge) that can use every
+AWS service — servers, storage, databases, and so on — **except IAM** (Identity
+and Access Management, the security office that controls users, roles, and
+permissions). It can run the platform but cannot change who has access or alter
+permissions.
+
+#### 4) `roleB` — assume-role-only pass
+
+**Task:** a role whose only permission is to assume a role in Account B.
+
+**Explanation:** `roleB` is an **IAM role** with exactly one permission:
+**assume a role** (put on the temporary badge) in Account B. It has no other
+powers — no storage, no servers, no other roles.
+
+### Account B
+
+#### 5) `roleC` — one bucket, only for `roleB`
+
+**Task:** a role with full access to a single named S3 bucket, assumable only by
+`roleB` from Account A — not by anything else in Account A.
+
+**Explanation:** `roleC` is an **IAM role** in Account B with full access to
+**one S3 bucket** (a single storage box) and the files inside it. Only `roleB`
+from Account A is allowed to **assume** it. No other user, role, or
+administrator in Account A can assume `roleC`.
+
+### The chain
+
+```
+roleB (Account A)  ──only job: assume──►  roleC (Account B)  ──access──►  one S3 bucket
+```
+
+- `roleB` has no powers except assuming `roleC`.
+- `roleC` has no powers except using that one bucket.
+- Nothing else in Account A can reach the bucket.
+
+---
+
+## Q1. Would you give `engine` and `ci` IAM users with access keys in a real production setup, or would you do something different?
+
+**Answer: No — not long-lived IAM user access keys.**
+
+| Principal | Task's approach | What I would use instead | Why |
+|-----------|-----------------|--------------------------|-----|
+| `ci` (CI/CD) | IAM user + access key | OIDC federation: assume a role with `sts:AssumeRoleWithWebIdentity` | No stored secret; short-lived |
+| `engine` on AWS compute | IAM user + access key | IAM role attached to the compute (EC2 instance profile, ECS task role, Lambda execution role, EKS Pod Identity) | No keys; auto-rotated |
+| People using CLI/console | IAM users | IAM Identity Center (SSO) + MFA | Short-lived; central offboarding |
+| Fallback (if federation/roles are not possible) | IAM user + access key | Least privilege, rotation, Secrets Manager, CloudTrail/Access Analyzer monitoring | Static key risk still exists |
+
+| Problem with IAM user access keys | Consequence |
+|-----------------------------------|-------------|
+| Never expire | A leaked key works forever |
+| Stored in configs/logs/repos | Easy to expose accidentally |
+| Hard to rotate | Stale, over-broad permissions pile up |
+| Often shared | No per-workload attribution |
+
+### Policy example 1 — `ci` assumes a role via OIDC (no access key)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:<org>/<repo>:*"
+        }
+      }
+    }
+  ]
+}
+```
+
+### Policy example 2 — `engine` on an EC2 instance assumes a role (no access key)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+---
+
+## Q2. In `roleC`'s trust policy, why does it matter whether you trust the whole Account A root vs. `roleB`'s specific ARN?
+
+**Answer: `root` trusts the whole account; the `roleB` ARN trusts one identity.**
+
+| Trust principal | What it trusts | Who can assume `roleC` | Meets "only `roleB`"? |
+|-----------------|----------------|------------------------|------------------------|
+| `arn:aws:iam::000000000000:root` | All of Account A | Any Account A principal whose identity policy allows `sts:AssumeRole` on `roleC` | No |
+| `arn:aws:iam::000000000000:role/roleB` | Only `roleB` | Only `roleB` | Yes |
+
+| Side | Requirement |
+|------|-------------|
+| Account A | `roleB`'s identity policy allows `sts:AssumeRole` on `roleC` |
+| Account B | `roleC`'s trust policy allows `roleB` |
+
+Note: `root` here does not mean the root user — it is the account principal.
+
+### Policy example 1 — wrong: trusts the whole account (too broad)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::000000000000:root"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+### Policy example 2 — correct: trusts only `roleB`
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::000000000000:role/roleB"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+When `roleB` assumes `roleC`, the request carries an assumed-role session ARN
+(`arn:aws:sts::000000000000:assumed-role/roleB/<session>`), but the trust policy
+principal is written as the **role ARN**, as shown above.
