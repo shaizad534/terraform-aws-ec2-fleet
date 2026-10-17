@@ -7,7 +7,7 @@ terraform {
       source = "hashicorp/aws"
       # Pinned on purpose: "=" locks this exact version so a future release
       # can never change how this module behaves.
-      version = "= 5.60.0"
+      version = "= 6.69.0"
     }
   }
 }

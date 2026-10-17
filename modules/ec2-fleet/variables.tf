@@ -14,21 +14,21 @@ variable "instances" {
   }))
 
   # Friendly check: catch typos before we ever talk to AWS.
-  validation {
-    condition = alltrue([
-      for name, cfg in var.instances :
-      contains(["standard", "gp2", "gp3", "io1", "io2"], cfg.root_volume_type)
-    ])
-    error_message = "root_volume_type must be one of: standard, gp2, gp3, io1, io2."
-  }
 
-  # io1 / io2 disks must say how many IOPS they need.
   validation {
-    condition = alltrue([
-      for name, cfg in var.instances :
-      !contains(["io1", "io2"], cfg.root_volume_type) || cfg.iops != null
-    ])
-    error_message = "Any server using an io1 or io2 disk must also set 'iops'."
+    condition = (
+      anytrue([
+        for name, cfg in var.instances :
+        contains(["io1", "io2"], cfg.root_volume_type)
+      ])
+      &&
+      alltrue([
+        for name, cfg in var.instances :
+        !contains(["io1", "io2"], cfg.root_volume_type) || cfg.iops != null
+      ])
+    )
+
+    error_message = "At least one instance must use io1 or io2, and every io1/io2 instance must specify iops."
   }
 }
 

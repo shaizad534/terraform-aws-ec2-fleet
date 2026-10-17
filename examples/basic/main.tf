@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "= 5.60.0" # pinned to the same version the module expects
+      version = "= 6.69.0" # pinned to the same version the module expects
     }
   }
 }

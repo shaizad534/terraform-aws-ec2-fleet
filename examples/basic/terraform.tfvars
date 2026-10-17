@@ -6,6 +6,7 @@ instances = {
     root_volume_type = "standard"
     root_volume_size = 8
     key_name         = "dev-key-web"
+    ami              = "ami-0b6d9d3d33ba97d99"
   }
 
   app-01 = {
@@ -23,11 +24,10 @@ instances = {
   }
 
   search-01 = {
-    instance_type    = "m6i.xlarge"
-    root_volume_type = "io2" # high-IOPS SSD
+    instance_type    = "m5.xlarge"
+    root_volume_type = "gp3"
     root_volume_size = 100
     key_name         = "dev-key-search"
-    iops             = 3000
   }
 
   db-01 = {
