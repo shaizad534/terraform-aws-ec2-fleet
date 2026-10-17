@@ -8,6 +8,8 @@ type, root volume size, and key pair.
 - Servers flagged `protect = true` are guarded with
   `lifecycle { prevent_destroy = true }`.
 - Every server is tagged with `Name`, `Environment`, and `Owner`.
+- A validation rule requires **at least one** server to use an `io1`/`io2`
+  volume, and any `io1`/`io2` server to set `iops`.
 - Outputs are maps of `server name -> instance ID` and `server name -> private IP`.
 
 See [NOTES.md](./NOTES.md) for which server is protected and why.
@@ -19,24 +21,25 @@ See [NOTES.md](./NOTES.md) for which server is protected and why.
 ├── README.md
 ├── NOTES.md
 ├── modules/
-│   └── ec2-fleet/          # the reusable module
+│   └── ec2-fleet-module/   # the reusable module
 │       ├── main.tf
 │       ├── variables.tf
 │       ├── outputs.tf
 │       └── versions.tf
-└── examples/
-    └── basic/              # a runnable example that uses the module
+└── ec2/
+    └── server-fleet/       # a runnable example that uses the module
         ├── main.tf
         ├── variables.tf
         ├── outputs.tf
-        └── terraform.tfvars
+        ├── terraform.tfvars
+        └── .terraform.lock.hcl   # committed to pin exact provider builds
 ```
 
 ## Usage
 
 ```hcl
 module "ec2_fleet" {
-  source = "../../modules/ec2-fleet"
+  source = "../../modules/ec2-fleet-module"
 
   environment = "dev"
   owner       = "platform-team"
@@ -63,7 +66,7 @@ module "ec2_fleet" {
 Run the example:
 
 ```bash
-cd examples/basic
+cd ec2/server-fleet
 terraform init
 terraform plan
 terraform apply
@@ -73,15 +76,17 @@ terraform apply
 
 Everything is pinned so nothing changes underneath you:
 
-- **AWS provider** is pinned with `= 5.60.0` in `modules/ec2-fleet/versions.tf`
-  and in `examples/basic/main.tf`. The `=` means "only this exact version".
+- **AWS provider** is pinned with `= 6.69.0` in `modules/ec2-fleet-module/versions.tf`
+  and in `ec2/server-fleet/main.tf`. The `=` means "only this exact version".
+- The generated `ec2/server-fleet/.terraform.lock.hcl` is committed, so every
+  machine resolves the exact same provider build.
 - **The module itself** should be pinned by Git tag when you call it from
-  another project. A local folder (`../../modules/ec2-fleet`) cannot have a
+  another project. A local folder (`../../modules/ec2-fleet-module`) cannot have a
   version number in Terraform, so use a Git source with a `ref`:
 
   ```hcl
   module "ec2_fleet" {
-    source = "git::https://github.com/your-org/terraform-aws-ec2-fleet.git//modules/ec2-fleet?ref=v1.0.0"
+    source = "git::https://github.com/your-org/terraform-aws-ec2-fleet.git//modules/ec2-fleet-module?ref=v1.0.0"
     # ...
   }
   ```
@@ -108,9 +113,12 @@ Everything is pinned so nothing changes underneath you:
 | `root_volume_type` | One of `standard`, `gp2`, `gp3`, `io1`, `io2`. |
 | `root_volume_size` | Root volume size in GB. |
 | `key_name` | EC2 key pair name. |
-| `ami` | (Optional) AMI ID; defaults to the newest Amazon Linux 2023. |
+| `ami` | (Optional) AMI ID; defaults to the newest Amazon Linux 2023. Set this to use a custom AMI. |
 | `iops` | (Optional) Required for `io1`/`io2` root volumes. |
 | `protect` | (Optional) Guard the server against delete. Default `false`. |
+
+The validation rule enforces two things: **at least one** server must use an
+`io1`/`io2` root volume, and every `io1`/`io2` server must set `iops`.
 
 ## Outputs
 
@@ -123,8 +131,11 @@ Everything is pinned so nothing changes underneath you:
 
 - Servers need an existing key pair and (optionally) security groups and a
   subnet; the module does not create them.
-- `io1`/`io2` root volumes require `iops`; a variable validation enforces this.
-- The 5-server example uses a different root volume type per server
-  (`standard`, `gp2`, `gp3`, `io2`, `io1`). `standard` is paired with a
-  pre-Nitro `t2.micro` because modern Nitro instance types cannot boot from
-  magnetic volumes.
+- `io1`/`io2` root volumes require `iops`, and at least one server must use an
+  `io1`/`io2` volume; a variable validation enforces both.
+- In the 5-server example, `db-01` is the only server using a provisioned-IOPS
+  volume (`io1`). The rest use `standard`, `gp2`, and `gp3`. `standard` is
+  paired with a pre-Nitro `t2.micro` because modern Nitro instance types cannot
+  boot from magnetic volumes.
+- `web-01` in the example sets a custom `ami` to show how to override the
+  default Amazon Linux 2023 image.
