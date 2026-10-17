@@ -85,17 +85,52 @@ receive **access keys** (permanent keys used by the **CLI** — the command line
 but **no console login** (no AWS website password). They can run scripts and
 tools, but cannot sign in to the AWS website.
 
-**Sample policy** (group permission policy — the task does not define the
-permissions, so this is a minimal example):
+**Example policy** for CLI/programmatic-only access (no console sign-in):
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [
-    { "Effect": "Allow", "Action": "sts:GetCallerIdentity", "Resource": "*" }
+    {
+      "Sid": "AllowEC2VPC",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowS3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowRDS",
+      "Effect": "Allow",
+      "Action": [
+        "rds:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyConsoleSignIn",
+      "Effect": "Deny",
+      "Action": [
+        "signin:Authenticate",
+        "signin:AuthorizeOAuth2Access",
+        "signin:CreateOAuth2Token"
+      ],
+      "Resource": "*"
+    }
   ]
 }
 ```
+
+No console password (login profile) is created for `engine`/`ci` — they use
+access keys only.
 
 #### 2) `group2` — full console + CLI team
 
