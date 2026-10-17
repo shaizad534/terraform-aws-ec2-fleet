@@ -29,6 +29,7 @@ See [NOTES.md](./NOTES.md) for which server is protected and why.
 └── ec2/
     └── server-fleet/       # a runnable example that uses the module
         ├── main.tf
+        ├── backend.tf      # S3 remote state + DynamoDB locking
         ├── variables.tf
         ├── outputs.tf
         ├── terraform.tfvars
@@ -63,7 +64,8 @@ module "ec2_fleet" {
 }
 ```
 
-Run the example:
+Run the example (after creating the backend bucket/table and editing
+`ec2/server-fleet/backend.tf`):
 
 ```bash
 cd ec2/server-fleet
@@ -71,6 +73,36 @@ terraform init
 terraform plan
 terraform apply
 ```
+
+## Remote state (S3 + DynamoDB)
+
+`ec2/server-fleet/backend.tf` stores the state file in S3 and uses a DynamoDB
+table for locking. The bucket and table must exist before `terraform init`.
+
+### What happens today with local state
+
+- Each engineer keeps their own `terraform.tfstate` on their own machine, so
+  everyone has a **separate, diverging copy** of what Terraform thinks exists.
+- If two people run `apply` at the same time, both read stale copies, both
+  change AWS, and both write their copy back. Nothing coordinates them.
+- The result is **last-write-wins**: one person's resources can be created in
+  AWS but missing from state (orphaned), or one apply can undo the other's
+  changes. No error is raised — it fails silently and you get drift.
+
+### How this backend prevents it
+
+- **S3** makes state **shared and central**, so every engineer reads the same
+  file and sees the same resources.
+- **DynamoDB** provides **locking**: at the start of an operation Terraform
+  writes a lock item. Only one operation can hold it. A second concurrent
+  `apply` stops with `Error acquiring the state lock` instead of writing.
+- When the first finishes, it releases the lock and writes state to S3; the
+  next run then sees the updated state.
+- `encrypt = true` keeps the state encrypted at rest (also enable S3
+  versioning so you can roll back a bad state write).
+
+To point at your own infrastructure, edit the `bucket`, `region`, and
+`dynamodb_table` values in `backend.tf`.
 
 ## Version pinning
 
