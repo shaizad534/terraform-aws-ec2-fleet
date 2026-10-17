@@ -134,6 +134,109 @@ roleB (Account A)  ──only job: assume──►  roleC (Account B)  ──acc
 - `roleC` has no powers except using that one bucket.
 - Nothing else in Account A can reach the bucket.
 
+## Short IAM policies for the 5 conditions
+
+> Where the task does not define permissions or trust, the policy below is a
+> minimal example/placeholder.
+
+### 1) `group1` — permission policy (attach to the group)
+
+Task does not specify permissions, so this is a minimal example:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "sts:GetCallerIdentity", "Resource": "*" }
+  ]
+}
+```
+
+### 2) `group2` — permission policy (attach to the group)
+
+Full console + CLI = full access (equivalent to `AdministratorAccess`):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "*", "Resource": "*" }
+  ]
+}
+```
+
+### 3) `roleA` — permission policy
+
+All services, with IAM explicitly denied:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "*", "Resource": "*" },
+    { "Effect": "Deny", "Action": "iam:*", "Resource": "*" }
+  ]
+}
+```
+
+Trust policy: not specified by the task.
+
+### 4) `roleB` — permission policy
+
+Only permission: assume `roleC` in Account B:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::111111111111:role/roleC"
+    }
+  ]
+}
+```
+
+Trust policy: not specified by the task.
+
+### 5) `roleC` — trust policy
+
+Only `roleB` from Account A can assume it:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::000000000000:role/roleB" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+### 5) `roleC` — permission policy
+
+Full access to one bucket and its objects:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::my-single-bucket",
+        "arn:aws:s3:::my-single-bucket/*"
+      ]
+    }
+  ]
+}
+```
+
 ---
 
 ## Q1. Would you give `engine` and `ci` IAM users with access keys in a real production setup, or would you do something different?
