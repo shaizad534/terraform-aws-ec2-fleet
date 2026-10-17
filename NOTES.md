@@ -568,9 +568,9 @@ data "aws_iam_policy_document" "roleC_trust" {
       type = "AWS"
 
       # roleB is a role, not a user, and must be the full role ARN.
-      # Replace ACCOUNT_A_ID with Account A's actual ID.
+      # Account A is 000000000000.
       identifiers = [
-        "arn:aws:iam::ACCOUNT_A_ID:role/roleB"
+        "arn:aws:iam::000000000000:role/roleB"
       ]
     }
   }
