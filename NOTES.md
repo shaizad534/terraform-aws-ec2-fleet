@@ -85,6 +85,18 @@ receive **access keys** (permanent keys used by the **CLI** — the command line
 but **no console login** (no AWS website password). They can run scripts and
 tools, but cannot sign in to the AWS website.
 
+**Sample policy** (group permission policy — the task does not define the
+permissions, so this is a minimal example):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "sts:GetCallerIdentity", "Resource": "*" }
+  ]
+}
+```
+
 #### 2) `group2` — full console + CLI team
 
 **Task:** a group for full console + CLI access; two named users of your choice.
@@ -93,6 +105,17 @@ tools, but cannot sign in to the AWS website.
 get **both** a **console login** (AWS website password) **and access keys**
 (CLI/command-line keys). They can work from the website and from the command
 line.
+
+**Sample policy** (group permission policy — full console + CLI = full access):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "*", "Resource": "*" }
+  ]
+}
+```
 
 #### 3) `roleA` — administrator except IAM
 
@@ -104,70 +127,7 @@ and Access Management, the security office that controls users, roles, and
 permissions). It can run the platform but cannot change who has access or alter
 permissions.
 
-#### 4) `roleB` — assume-role-only pass
-
-**Task:** a role whose only permission is to assume a role in Account B.
-
-**Explanation:** `roleB` is an **IAM role** with exactly one permission:
-**assume a role** (put on the temporary badge) in Account B. It has no other
-powers — no storage, no servers, no other roles.
-
-### Account B
-
-#### 5) `roleC` — one bucket, only for `roleB`
-
-**Task:** a role with full access to a single named S3 bucket, assumable only by
-`roleB` from Account A — not by anything else in Account A.
-
-**Explanation:** `roleC` is an **IAM role** in Account B with full access to
-**one S3 bucket** (a single storage box) and the files inside it. Only `roleB`
-from Account A is allowed to **assume** it. No other user, role, or
-administrator in Account A can assume `roleC`.
-
-### The chain
-
-```
-roleB (Account A)  ──only job: assume──►  roleC (Account B)  ──access──►  one S3 bucket
-```
-
-- `roleB` has no powers except assuming `roleC`.
-- `roleC` has no powers except using that one bucket.
-- Nothing else in Account A can reach the bucket.
-
-## Short IAM policies for the 5 conditions
-
-> Where the task does not define permissions or trust, the policy below is a
-> minimal example/placeholder.
-
-### 1) `group1` — permission policy (attach to the group)
-
-Task does not specify permissions, so this is a minimal example:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow", "Action": "sts:GetCallerIdentity", "Resource": "*" }
-  ]
-}
-```
-
-### 2) `group2` — permission policy (attach to the group)
-
-Full console + CLI = full access (equivalent to `AdministratorAccess`):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow", "Action": "*", "Resource": "*" }
-  ]
-}
-```
-
-### 3) `roleA` — permission policy
-
-All services, with IAM explicitly denied:
+**Sample policy** (permission policy — allow everything, deny IAM):
 
 ```json
 {
@@ -181,9 +141,15 @@ All services, with IAM explicitly denied:
 
 Trust policy: not specified by the task.
 
-### 4) `roleB` — permission policy
+#### 4) `roleB` — assume-role-only pass
 
-Only permission: assume `roleC` in Account B:
+**Task:** a role whose only permission is to assume a role in Account B.
+
+**Explanation:** `roleB` is an **IAM role** with exactly one permission:
+**assume a role** (put on the temporary badge) in Account B. It has no other
+powers — no storage, no servers, no other roles.
+
+**Sample policy** (permission policy — only assume `roleC` in Account B):
 
 ```json
 {
@@ -200,9 +166,19 @@ Only permission: assume `roleC` in Account B:
 
 Trust policy: not specified by the task.
 
-### 5) `roleC` — trust policy
+### Account B
 
-Only `roleB` from Account A can assume it:
+#### 5) `roleC` — one bucket, only for `roleB`
+
+**Task:** a role with full access to a single named S3 bucket, assumable only by
+`roleB` from Account A — not by anything else in Account A.
+
+**Explanation:** `roleC` is an **IAM role** in Account B with full access to
+**one S3 bucket** (a single storage box) and the files inside it. Only `roleB`
+from Account A is allowed to **assume** it. No other user, role, or
+administrator in Account A can assume `roleC`.
+
+**Sample trust policy** (only `roleB` from Account A can assume it):
 
 ```json
 {
@@ -217,9 +193,7 @@ Only `roleB` from Account A can assume it:
 }
 ```
 
-### 5) `roleC` — permission policy
-
-Full access to one bucket and its objects:
+**Sample permission policy** (full access to one bucket and its objects):
 
 ```json
 {
@@ -236,6 +210,24 @@ Full access to one bucket and its objects:
   ]
 }
 ```
+
+### The chain
+
+```
+roleB (Account A)  ──only job: assume──►  roleC (Account B)  ──access──►  one S3 bucket
+```
+
+- `roleB` has no powers except assuming `roleC`.
+- `roleC` has no powers except using that one bucket.
+- Nothing else in Account A can reach the bucket.
+
+### Role / account summary
+
+| Role | Account | Trusted to be assumed by | Permission policy (what it can do) | Assumes |
+|------|---------|--------------------------|------------------------------------|---------|
+| `roleA` | A — `000000000000` | Not specified by the task | All services, but `iam:*` denied | Nothing cross-account |
+| `roleB` | A — `000000000000` | Not specified by the task | Only `sts:AssumeRole` | `roleC` in Account B |
+| `roleC` | B — `111111111111` | Only `roleB` (`arn:aws:iam::000000000000:role/roleB`) | `s3:*` on one bucket + its objects | Nothing |
 
 ---
 
