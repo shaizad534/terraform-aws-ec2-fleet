@@ -29,13 +29,21 @@ variable "instances" {
     error_message = "Every instance must use a different root_volume_type."
   }
 
-  # io1 / io2 disks must say how many IOPS they need.
+  # Provisioned-IOPS: at least one io1/io2 instance, and each must set iops.
   validation {
-    condition = alltrue([
-      for name, cfg in var.instances :
-      !contains(["io1", "io2"], cfg.root_volume_type) || cfg.iops != null
-    ])
-    error_message = "Any server using an io1 or io2 disk must also set 'iops'."
+    condition = (
+      anytrue([
+        for name, cfg in var.instances :
+        contains(["io1", "io2"], cfg.root_volume_type)
+      ])
+      &&
+      alltrue([
+        for name, cfg in var.instances :
+        !contains(["io1", "io2"], cfg.root_volume_type) || cfg.iops != null
+      ])
+    )
+
+    error_message = "At least one instance must use io1 or io2, and every io1/io2 instance must set iops."
   }
 }
 

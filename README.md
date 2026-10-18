@@ -9,8 +9,8 @@ type, root volume size, and key pair.
   `lifecycle { prevent_destroy = true }`.
 - Every server is tagged with `Name`, `Environment`, and `Owner`.
 - Validation rules require `root_volume_type` to be a valid value, require
-  **every server to use a different root volume type**, and require any
-  `io1`/`io2` server to set `iops`.
+  **every server to use a different root volume type**, require **at least one**
+  `io1`/`io2` server, and require any `io1`/`io2` server to set `iops`.
 - Outputs are maps of `server name -> instance ID` and `server name -> private IP`.
 
 See [NOTES.md](./NOTES.md) for which server is protected and why.
@@ -150,9 +150,10 @@ Everything is pinned so nothing changes underneath you:
 | `iops` | (Optional) Required for `io1`/`io2` root volumes. |
 | `protect` | (Optional) Guard the server against delete. Default `false`. |
 
-The validation rules enforce three things: `root_volume_type` must be one of
-the allowed values, **every** server must use a different `root_volume_type`,
-and every `io1`/`io2` server must set `iops`.
+The validation rules enforce four things: `root_volume_type` must be one of the
+allowed values, **every** server must use a different `root_volume_type`, **at
+least one** server must use an `io1`/`io2` volume, and every `io1`/`io2` server
+must set `iops`.
 
 ## Outputs
 
@@ -166,8 +167,8 @@ and every `io1`/`io2` server must set `iops`.
 - Servers need an existing key pair and (optionally) security groups and a
   subnet; the module does not create them.
 - `root_volume_type` must be a valid value, all root volume types must be
-  unique, and `io1`/`io2` root volumes require `iops`; variable validations
-  enforce all three.
+  unique, at least one server must use an `io1`/`io2` volume, and `io1`/`io2`
+  root volumes require `iops`; variable validations enforce all four.
 - In the 5-server example, all five root volume types are distinct: `standard`
   (web-01), `gp2` (app-01), `gp3` (cache-01), `io2` (search-01), and `io1`
   (db-01). `standard` is paired with a pre-Nitro `t2.micro` because modern
