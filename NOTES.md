@@ -26,8 +26,8 @@ editing code for the disposable instances.
 computed expression. The module therefore splits the single `var.instances` map
 into two `for_each` resource blocks:
 
-- `aws_instance.this` — all instances with `protect = false`.
-- `aws_instance.guarded` — instances with `protect = true`, which carry the
+- `aws_instance.normal` — all instances with `protect = false`.
+- `aws_instance.protected` — instances with `protect = true`, which carry the
   `lifecycle { prevent_destroy = true }` block.
 
 Everything is still driven by the one `instances` variable; only the lifecycle
@@ -118,9 +118,9 @@ least-privilege policy.
 **Task:** a group for full console + CLI access; two named users of your choice.
 
 **Explanation:** `group2` is an **IAM group** for real people. Its two members
-get **both** a **console login** (AWS website password) **and access keys**
-(CLI/command-line keys). They can work from the website and from the command
-line.
+are **`alice.ops`** and **`bob.dev`**. Each gets **both** a **console login**
+(AWS website password) **and access keys** (CLI/command-line keys). They can
+work from the website and from the command line.
 
 **Sample policy** (group permission policy — full console + CLI = full access):
 
@@ -458,6 +458,26 @@ A custom IAM policy (not a managed policy such as `PowerUserAccess`) for the
 | `EcsUpdateService` | Points the one service at the new revision. | Scoped to the service ARN. No `CreateService`, `DeleteService`, `RunTask`, etc. |
 | `PassEcsExecutionRole` | ECS requires `iam:PassRole` when registering a task definition that references an execution role. | Only the one execution role, plus `iam:PassedToService = ecs-tasks.amazonaws.com` so it cannot be passed elsewhere. |
 | `ReadBuildArtifactsBucket` / `ReadBuildArtifactsObjects` | Reads build artifacts. | `ListBucket` on the bucket ARN, `GetObject` on `/*`. No `PutObject`, `DeleteObject`, or `s3:*`. |
+
+## Deliberately excluded
+
+The task is CI: push an image, register a new task-definition revision, update
+one service, and read build artifacts. Anything outside that is intentionally
+absent:
+
+- **No `s3:PutObject` / `s3:DeleteObject`** - CI only reads build artifacts.
+- **No `ecr:*`, `ecr:DeleteRepository`, `ecr:PutLifecyclePolicy`** - only the
+  push actions are granted; the pipeline never manages repositories.
+- **No `ecs:RunTask`, `ecs:CreateService`, `ecs:DeleteService`** - it updates
+  the existing service only; it cannot create or destroy services.
+- **No `iam:*`** - only `iam:PassRole` on the one execution role,
+  condition-locked to ECS, so the pipeline cannot change users, roles, or
+  policies.
+- **No `ec2:*`, `rds:*`, or `sts:*`** - unrelated to the three required
+  actions.
+- **No `"Resource": "*"` where avoidable** - the only wildcard resources are
+  `ecr:GetAuthorizationToken` and `ecs:RegisterTaskDefinition`, which AWS does
+  not allow scoping.
 
 ## The 4 conditional gaps
 

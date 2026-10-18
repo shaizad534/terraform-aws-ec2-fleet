@@ -25,9 +25,10 @@ instances = {
 
   search-01 = {
     instance_type    = "m5.xlarge"
-    root_volume_type = "gp3"
+    root_volume_type = "io2" # provisioned-IOPS SSD
     root_volume_size = 100
     key_name         = "dev-key-search"
+    iops             = 3000
   }
 
   db-01 = {
