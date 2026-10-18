@@ -10,10 +10,11 @@
 #   3. Replace the placeholder bucket / region / table with your own values.
 terraform {
   backend "s3" {
-    bucket         = "YOUR-ORG-terraform-state" # TODO: your S3 bucket
+    bucket         = "shaizad-terraform-s3-bucket" # TODO: your S3 bucket
     key            = "ec2/server-fleet/terraform.tfstate"
-    region         = "us-east-1"             # TODO: where the bucket lives
+    region         = "ap-south-2"            # TODO: where the bucket lives
     dynamodb_table = "terraform-state-locks" # TODO: your DynamoDB table
-    encrypt        = true
+    #use_lockfile  = true # Use for s3 native state locking
+    encrypt = true
   }
 }

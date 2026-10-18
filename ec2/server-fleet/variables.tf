@@ -1,7 +1,7 @@
 variable "region" {
   description = "AWS region to deploy the example into."
   type        = string
-  default     = "us-east-1"
+  default     = "ap-south-2"
 }
 
 variable "security_group_ids" {
