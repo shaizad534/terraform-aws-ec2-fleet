@@ -6,6 +6,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "= 6.69.0" # pinned to the same version the module expects
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "= 4.4.1"
+    }
   }
 }
 

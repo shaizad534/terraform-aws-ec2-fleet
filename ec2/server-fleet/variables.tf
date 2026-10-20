@@ -16,7 +16,6 @@ variable "instances" {
     instance_type    = string
     root_volume_type = string
     root_volume_size = number
-    key_name         = string
     ami              = optional(string)
     iops             = optional(number)
     protect          = optional(bool, false)

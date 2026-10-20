@@ -1,10 +1,12 @@
 # terraform-aws-ec2-fleet
 
 A small, easy-to-read Terraform module that creates a fleet of EC2 servers from
-**one map variable**. Each server can have its own instance type, root volume
-type, root volume size, and key pair.
+**one map variable**. Each server gets its own instance type, root volume type,
+root volume size, and SSH key pair.
 
 - All servers are created with `for_each` from the single `instances` map.
+- Each server gets its own key pair, created and attached when the instance
+  launches.
 - Servers flagged `protect = true` are guarded with
   `lifecycle { prevent_destroy = true }`.
 - Every server is tagged with `Name`, `Environment`, and `Owner`.
@@ -51,13 +53,11 @@ module "ec2_fleet" {
       instance_type    = "t3.small"
       root_volume_type = "gp3"
       root_volume_size = 20
-      key_name         = "dev-key-web"
     }
     db-01 = {
       instance_type    = "r5.xlarge"
       root_volume_type = "io1"
       root_volume_size = 200
-      key_name         = "dev-key-db"
       iops             = 5000
       protect          = true
     }
@@ -111,6 +111,8 @@ Everything is pinned so nothing changes underneath you:
 
 - **AWS provider** is pinned with `= 6.69.0` in `modules/ec2-fleet-module/versions.tf`
   and in `ec2/server-fleet/main.tf`. The `=` means "only this exact version".
+- **TLS provider** (`hashicorp/tls`) is pinned with `= 4.4.1` in both files so
+  generated key pairs use a known provider build.
 - The generated `ec2/server-fleet/.terraform.lock.hcl` is committed, so every
   machine resolves the exact same provider build.
 - **The module itself** should be pinned by Git tag when you call it from
@@ -145,7 +147,6 @@ Everything is pinned so nothing changes underneath you:
 | `instance_type` | EC2 instance type. |
 | `root_volume_type` | One of `standard`, `gp2`, `gp3`, `io1`, `io2`. |
 | `root_volume_size` | Root volume size in GB. |
-| `key_name` | EC2 key pair name. |
 | `ami` | (Optional) AMI ID; defaults to the newest Amazon Linux 2023. Set this to use a custom AMI. |
 | `iops` | (Optional) Required for `io1`/`io2` root volumes. |
 | `protect` | (Optional) Guard the server against delete. Default `false`. |
@@ -164,8 +165,10 @@ must set `iops`.
 
 ## Caveats
 
-- Servers need an existing key pair and (optionally) security groups and a
-  subnet; the module does not create them.
+- The module creates one SSH key pair per server (`<environment>-<name>-key`)
+  and attaches it at launch. The private key is not exposed as an output; it
+  still lives in Terraform state, so restrict access to the state bucket.
+  Security groups and a subnet are optional and are not created by the module.
 - `root_volume_type` must be a valid value, all root volume types must be
   unique, at least one server must use an `io1`/`io2` volume, and `io1`/`io2`
   root volumes require `iops`; variable validations enforce all four.

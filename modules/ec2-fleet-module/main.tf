@@ -23,6 +23,23 @@ locals {
 }
 
 # ---------------------------------------------------------------------------
+# One SSH key pair per server, created before the instances.
+# ---------------------------------------------------------------------------
+resource "tls_private_key" "instance" {
+  for_each  = var.instances
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "instance" {
+  for_each   = var.instances
+  key_name   = "${var.environment}-${each.key}-key"
+  public_key = tls_private_key.instance[each.key].public_key_openssh
+
+  tags = merge(local.common_tags, { Name = "${var.environment}-${each.key}-key" })
+}
+
+# ---------------------------------------------------------------------------
 # The normal servers (no delete protection).
 # ---------------------------------------------------------------------------
 resource "aws_instance" "normal" {
@@ -30,7 +47,7 @@ resource "aws_instance" "normal" {
 
   ami                    = coalesce(each.value.ami, data.aws_ami.al2023.id)
   instance_type          = each.value.instance_type
-  key_name               = each.value.key_name
+  key_name               = aws_key_pair.instance[each.key].key_name
   subnet_id              = var.subnet_id
   vpc_security_group_ids = var.security_group_ids
 
@@ -52,7 +69,7 @@ resource "aws_instance" "protected" {
 
   ami                    = coalesce(each.value.ami, data.aws_ami.al2023.id)
   instance_type          = each.value.instance_type
-  key_name               = each.value.key_name
+  key_name               = aws_key_pair.instance[each.key].key_name
   subnet_id              = var.subnet_id
   vpc_security_group_ids = var.security_group_ids
 

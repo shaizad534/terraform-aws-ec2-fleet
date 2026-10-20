@@ -7,7 +7,6 @@ variable "instances" {
     instance_type    = string                # e.g. "t3.micro"
     root_volume_type = string                # standard, gp2, gp3, io1, or io2
     root_volume_size = number                # size of the disk in GB
-    key_name         = string                # which SSH key pair unlocks this server
     ami              = optional(string)      # optional: leave out to use the newest Amazon Linux
     iops             = optional(number)      # only needed for io1 / io2 disks
     protect          = optional(bool, false) # true = stop Terraform deleting it
